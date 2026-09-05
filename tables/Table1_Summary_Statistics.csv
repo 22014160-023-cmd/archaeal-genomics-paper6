@@ -1,0 +1,7 @@
+,gc_content,gc_content,gc_content,gc_content,gene_count,gene_count,gene_count,gene_count,te_count,te_count,te_count,te_count,genome_size_mb,genome_size_mb,genome_size_mb,genome_size_mb,avg_gene_len,avg_gene_len,avg_gene_len,avg_gene_len,gc3,gc3,gc3,gc3
+,mean,std,min,max,mean,std,min,max,mean,std,min,max,mean,std,min,max,mean,std,min,max,mean,std,min,max
+group,,,,,,,,,,,,,,,,,,,,,,,,
+acidophile,42.8,10.94,26.78,69.3,1191.13,1461.77,1,4523,20.61,30.37,0,93,1.26,1.53,0.01,4.83,1295.67,1965.26,554.08,10293.0,0.41,0.19,0.11,0.84
+halophile,43.23,9.3,32.84,67.91,678.82,1237.11,5,3227,22.94,75.62,0,314,0.66,1.21,0.01,3.13,861.62,360.76,580.4,2165.4,0.42,0.14,0.24,0.77
+mesophile,41.17,11.59,24.73,66.22,599.93,1335.39,12,4832,32.18,121.45,0,634,0.62,1.36,0.01,4.94,835.13,130.84,450.86,1033.56,0.38,0.2,0.11,0.85
+thermophile,43.01,10.24,27.86,68.67,1852.73,1478.96,13,5384,38.1,59.13,0,254,1.96,1.62,0.01,5.23,859.97,113.3,651.53,1048.56,0.42,0.18,0.21,0.89

@@ -1,0 +1,37 @@
+Feature,Group1,Group2,U-statistic,P-value,Effect Size (r),Significance
+Gc Content,Thermophile,Halophile,255.0,1.0,0.0,ns
+Gc Content,Thermophile,Acidophile,350.0,0.9356349784513364,0.014,ns
+Gc Content,Thermophile,Mesophile,481.0,0.34649307913386296,0.145,ns
+Gc Content,Halophile,Acidophile,198.0,0.9563621154430029,0.013,ns
+Gc Content,Halophile,Mesophile,272.0,0.4328950097077845,0.143,ns
+Gc Content,Acidophile,Mesophile,348.0,0.6293017391712905,0.081,ns
+Gene Count,Thermophile,Halophile,401.0,0.0012508396148716392,0.573,**
+Gene Count,Thermophile,Acidophile,445.5,0.0725953240609278,0.291,ns
+Gene Count,Thermophile,Mesophile,690.0,2.335239413458386e-05,0.643,***
+Gene Count,Halophile,Acidophile,139.0,0.12253741982770675,-0.289,ns
+Gene Count,Halophile,Mesophile,244.0,0.8927681145939641,0.025,ns
+Gene Count,Acidophile,Mesophile,437.5,0.025991842609112043,0.359,*
+Te Count,Thermophile,Halophile,373.5,0.007372041159337646,0.465,**
+Te Count,Thermophile,Acidophile,428.5,0.12967006611780466,0.242,ns
+Te Count,Thermophile,Mesophile,611.5,0.0020329310430129864,0.456,**
+Te Count,Halophile,Acidophile,155.5,0.23648856911500027,-0.205,ns
+Te Count,Halophile,Mesophile,239.0,0.9890834953808078,0.004,ns
+Te Count,Acidophile,Mesophile,388.0,0.1698950307859367,0.205,ns
+Genome Size Mb,Thermophile,Halophile,403.0,0.0010919197968078697,0.58,**
+Genome Size Mb,Thermophile,Acidophile,436.0,0.10435046960394666,0.264,ns
+Genome Size Mb,Thermophile,Mesophile,679.0,5.760751342823374e-05,0.617,***
+Genome Size Mb,Halophile,Acidophile,136.0,0.10648003470515874,-0.304,ns
+Genome Size Mb,Halophile,Mesophile,243.0,0.9161007446701429,0.021,ns
+Genome Size Mb,Acidophile,Mesophile,427.0,0.04791020133144319,0.326,*
+Avg Gene Len,Thermophile,Halophile,326.0,0.1185482356188647,0.278,ns
+Avg Gene Len,Thermophile,Acidophile,280.0,0.24704047278295993,-0.188,ns
+Avg Gene Len,Thermophile,Mesophile,483.0,0.3307773004226998,0.15,ns
+Avg Gene Len,Halophile,Acidophile,120.0,0.04015360792762599,-0.386,*
+Avg Gene Len,Halophile,Mesophile,197.0,0.3430525304217257,-0.172,ns
+Avg Gene Len,Acidophile,Mesophile,422.0,0.059613292317269764,0.311,ns
+Gc3,Thermophile,Halophile,238.0,0.7148754315706882,-0.067,ns
+Gc3,Thermophile,Acidophile,358.0,0.8225038080331111,0.038,ns
+Gc3,Thermophile,Mesophile,468.0,0.4598303825777924,0.114,ns
+Gc3,Halophile,Acidophile,200.0,0.9128546634670471,0.023,ns
+Gc3,Halophile,Mesophile,298.0,0.163644932041059,0.252,ns
+Gc3,Acidophile,Mesophile,354.0,0.5509823859713632,0.099,ns
