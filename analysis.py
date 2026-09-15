@@ -1,459 +1,889 @@
-# ============================================
-# COMPLETE ARCHAEAL GENOMICS ANALYSIS
-# From Setup → Download → Feature Extraction → Statistics → Figures
-# ============================================
+"""
+================================================================
+Archaeal genomics analysis pipeline
+Paper: Genomic Convergence and Divergence in Archaeal Extremophiles
+Authors: Nadia Zeeshan, Isma Abid, Zariab Ahmed
+Department of Biochemistry and Biotechnology
+University of Gujrat, Pakistan
+================================================================
 
+Run order:
+  1. Download + extract features  →  archaeal_data/archaeal_genomes_features.csv
+  2. Statistics + 20 figures      →  figures/Figure01..20*.png
+  3. Preview + zip figures
+  4. Generate tables              →  tables/Table1..8*.{csv,tex}
+"""
+
+# ============================================================
+# SECTION 1 — IMPORTS & GLOBAL CONFIG
+# ============================================================
 import os
 import time
-import glob
-import gzip
-import shutil
-import urllib.request
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import zipfile
+import warnings
+from getpass import getpass
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+from matplotlib.patches import Ellipse
 import seaborn as sns
-from Bio import Entrez, SeqIO
-from scipy.stats import kruskal, mannwhitneyu
-from sklearn.preprocessing import StandardScaler
+
+from scipy import stats
+from scipy.stats import gaussian_kde
+from scipy.spatial.distance import pdist
+from scipy.cluster.hierarchy import linkage, dendrogram
+
 from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score
-from scipy.spatial.distance import pdist, squareform
-from statsmodels.stats.multitest import multipletests
-import warnings
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score, silhouette_samples
+from sklearn.manifold import TSNE
+
+from Bio import Entrez, SeqIO
+from tqdm import tqdm
+
 warnings.filterwarnings('ignore')
 
-print("="*75)
-print("COMPLETE ARCHAEAL GENOMICS ANALYSIS")
-print("="*75)
+# ---------- Output directories ----------
+OUTDIR = "archaeal_data"
+FIGDIR = "figures"
+TABDIR = "tables"
+os.makedirs(OUTDIR, exist_ok=True)
+os.makedirs(FIGDIR, exist_ok=True)
+os.makedirs(TABDIR, exist_ok=True)
 
-# ============================================
-# PART 1: CONFIGURATION
-# ============================================
-PROJECT_DIR = Path("/content/drive/MyDrive/paper6_final")
-GENOME_DIR = PROJECT_DIR / "genomes"
-FIGURE_DIR = PROJECT_DIR / "figures"
-TABLE_DIR = PROJECT_DIR / "tables"
+# ---------- Plot style ----------
+plt.rcParams.update({
+    'font.family': 'DejaVu Sans',
+    'font.size': 10,
+    'axes.titlesize': 12,
+    'axes.labelsize': 11,
+    'xtick.labelsize': 9,
+    'ytick.labelsize': 9,
+    'legend.fontsize': 9,
+    'figure.dpi': 300,
+    'savefig.dpi': 300,
+    'savefig.bbox': 'tight',
+    'axes.spines.top': False,
+    'axes.spines.right': False,
+})
 
-for d in [PROJECT_DIR, GENOME_DIR, FIGURE_DIR, TABLE_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
+# ---------- Consistent palette ----------
+COLORS = {
+    'thermophile': '#C0392B',
+    'halophile':   '#E67E22',
+    'acidophile':  '#16A085',
+    'mesophile':   '#2C3E50',
+}
+GROUPS = ['thermophile', 'halophile', 'acidophile', 'mesophile']
+GROUP_LABELS = [g.capitalize() for g in GROUPS]
 
-Entrez.email = "zariabahmed462@gmail.com"
-
-print(f"Project: {PROJECT_DIR}")
-
-# ============================================
-# PART 2: GENOME ACCESSIONS (200 VERIFIED)
-# ============================================
-THERMOPHILES = [
-    'NC_000868', 'NC_000917', 'NC_001869', 'NC_002578', 'NC_002689',
-    'NC_003106', 'NC_003413', 'NC_003901', 'NC_004070', 'NC_004088',
-    'NC_005877', 'NC_005945', 'NC_006177', 'NC_006624', 'NC_007179',
-    'NC_007181', 'NC_007355', 'NC_007413', 'NC_007464', 'NC_007481',
-    'NC_007796', 'NC_007955', 'NC_008553', 'NC_008698', 'NC_008709',
-    'NC_008818', 'NC_009515', 'NC_009516', 'NC_009634', 'NC_009635',
-    'NC_009776', 'NC_009777', 'NC_009778', 'NC_009779', 'NC_009780',
-    'NC_009781', 'NC_009782', 'NC_009783', 'NC_009784', 'NC_009785',
-    'NC_010003', 'NC_010004', 'NC_010005', 'NC_010006', 'NC_010007',
-    'NC_010008', 'NC_010009', 'NC_010010', 'NC_010011', 'NC_010012'
-]
-
-HALOPHILES = [
-    'NC_002607', 'NC_002608', 'NC_002616', 'NC_002730', 'NC_002745',
-    'NC_002754', 'NC_002764', 'NC_002775', 'NC_002784', 'NC_002798',
-    'NC_006396', 'NC_006397', 'NC_006398', 'NC_006399', 'NC_006400',
-    'NC_006401', 'NC_006402', 'NC_006403', 'NC_006404', 'NC_006405',
-    'NC_006406', 'NC_006407', 'NC_006408', 'NC_006409', 'NC_006410',
-    'NC_006411', 'NC_006412', 'NC_006413', 'NC_006414', 'NC_006415',
-    'NC_006416', 'NC_006417', 'NC_006418', 'NC_006419', 'NC_006420',
-    'NC_006421', 'NC_006422', 'NC_006423', 'NC_006424', 'NC_006425',
-    'NC_006426', 'NC_006427', 'NC_006428', 'NC_006429', 'NC_006430',
-    'NC_006431', 'NC_006432', 'NC_006433', 'NC_006434', 'NC_006435'
-]
-
-ACIDOPHILES = [
-    'NC_002944', 'NC_002945', 'NC_002946', 'NC_002947', 'NC_002950',
-    'NC_002951', 'NC_002952', 'NC_002953', 'NC_007575', 'NC_007576',
-    'NC_007577', 'NC_007578', 'NC_007579', 'NC_007580', 'NC_007581',
-    'NC_007582', 'NC_007583', 'NC_007584', 'NC_007585', 'NC_007586',
-    'NC_007587', 'NC_007588', 'NC_007589', 'NC_007590', 'NC_007591',
-    'NC_007592', 'NC_007593', 'NC_007594', 'NC_007595', 'NC_007596',
-    'NC_007597', 'NC_007598', 'NC_007599', 'NC_007600', 'NC_007601',
-    'NC_007602', 'NC_007603', 'NC_007604', 'NC_007605', 'NC_007606',
-    'NC_007607', 'NC_007608', 'NC_007609', 'NC_007610', 'NC_007611',
-    'NC_007612', 'NC_007613', 'NC_007614', 'NC_007615', 'NC_007616'
-]
-
-MESOPHILES = [
-    'NC_003551', 'NC_003552', 'NC_003553', 'NC_003554', 'NC_003555',
-    'NC_003556', 'NC_003557', 'NC_003558', 'NC_003559', 'NC_003560',
-    'NC_007677', 'NC_007678', 'NC_007679', 'NC_007680', 'NC_007681',
-    'NC_007682', 'NC_007683', 'NC_007684', 'NC_007685', 'NC_007686',
-    'NC_007687', 'NC_007688', 'NC_007689', 'NC_007690', 'NC_007691',
-    'NC_007692', 'NC_007693', 'NC_007694', 'NC_007695', 'NC_007696',
-    'NC_007697', 'NC_007698', 'NC_007699', 'NC_007700', 'NC_007701',
-    'NC_007702', 'NC_007703', 'NC_007704', 'NC_007705', 'NC_007706',
-    'NC_007707', 'NC_007708', 'NC_007709', 'NC_007710', 'NC_007711',
-    'NC_007712', 'NC_007713', 'NC_007714', 'NC_007715', 'NC_007716'
-]
-
-ALL_GENOMES = {
-    'thermophile': THERMOPHILES,
-    'halophile': HALOPHILES,
-    'acidophile': ACIDOPHILES,
-    'mesophile': MESOPHILES
+FEATURES = ['gc_content', 'gene_count', 'te_count',
+            'genome_size_mb', 'avg_gene_length', 'gc3']
+FEATURE_LABELS = {
+    'gc_content':      'GC content (%)',
+    'gene_count':      'Gene count',
+    'te_count':        'TE count',
+    'genome_size_mb':  'Genome size (MB)',
+    'avg_gene_length': 'Avg gene length (bp)',
+    'gc3':             'GC3',
 }
 
-print(f"Total accessions: {sum(len(v) for v in ALL_GENOMES.values())}")
 
-# ============================================
-# PART 3: DOWNLOAD GENOMES
-# ============================================
-print("\n📥 Downloading genomes...")
+# ============================================================
+# SECTION 2 — DOWNLOAD GENOMES FROM NCBI + EXTRACT FEATURES
+# ============================================================
+Entrez.email = "nadia.zeeshan@uog.edu.pk"
+Entrez.tool  = "archaeal_genomics_paper6"
 
-def download_genome(accession, group):
-    out_file = GENOME_DIR / f"{group}_{accession}.gb"
-    if out_file.exists() and out_file.stat().st_size > 5000:
-        return f"⏭️ {accession}"
+THERMOPHILE_GENERA = [
+    "Pyrococcus","Thermococcus","Sulfolobus","Pyrobaculum","Thermoplasma",
+    "Methanocaldococcus","Methanothermococcus","Methanopyrus","Ignicoccus",
+    "Nanoarchaeum","Acidilobus","Aeropyrum","Desulfurococcus","Hyperthermus",
+    "Staphylothermus","Pyrodictium","Pyrolobus","Thermofilum","Thermoproteus",
+    "Vulcanisaeta","Caldivirga","Archaeoglobus","Ferroglobus","Geoglobus",
+    "Methanotorris","Methanococcus","Palaeococcus",
+]
+HALOPHILE_GENERA = [
+    "Halobacterium","Haloarcula","Halococcus","Haloferax","Halorubrum",
+    "Haloterrigena","Natronomonas","Natrialba","Halobiforma","Halostagnicola",
+    "Halorhabdus","Halalkalicoccus","Halopiger","Halosimplex","Halovivax",
+    "Natronococcus","Natronorubrum","Halogeometricum","Haladaptatus",
+]
+ACIDOPHILE_GENERA = [
+    "Ferroplasma","Picrophilus","Acidianus","Metallosphaera",
+    "Stygiolobus","Sulfurisphaera",
+]
+MESOPHILE_GENERA = [
+    "Methanobrevibacter","Methanosphaera","Methanobacterium","Methanoregula",
+    "Methanocorpusculum","Methanoculleus","Methanosaeta","Methanosarcina",
+    "Methanomassiliicoccus","Nitrosopumilus","Nitrososphaera","Cenarchaeum",
+]
+
+
+def classify_environment(organism):
+    genus = organism.split()[0] if organism else ""
+    for lst, label in [(THERMOPHILE_GENERA, "thermophile"),
+                       (HALOPHILE_GENERA,   "halophile"),
+                       (ACIDOPHILE_GENERA,  "acidophile"),
+                       (MESOPHILE_GENERA,   "mesophile")]:
+        for g in lst:
+            if genus == g or genus.startswith(g):
+                return label
+    return None
+
+
+def search_archaeal_genomes(retmax=400):
+    query = ('archaea[Organism] AND "complete genome"[Assembly Level] '
+             'AND "latest refseq"[Filter]')
+    print("Querying NCBI Assembly database...")
+    handle = Entrez.esearch(db="assembly", term=query, retmax=retmax)
+    record = Entrez.read(handle)
+    handle.close()
+    ids = record["IdList"]
+    print(f"Found {len(ids)} assembly records")
+    return ids
+
+
+def fetch_assembly_summary(ids, chunk=100):
+    rows = []
+    for i in range(0, len(ids), chunk):
+        sub = ids[i:i+chunk]
+        handle = Entrez.esummary(db="assembly", id=",".join(sub))
+        try:
+            summary = Entrez.read(handle)
+        except Exception as e:
+            print(f"  chunk {i} failed: {e}")
+            continue
+        finally:
+            handle.close()
+        docs = summary["DocumentSummarySet"]["DocumentSummary"]
+        for d in docs:
+            rows.append({
+                "assembly_id":   d.get("AssemblyAccession", ""),
+                "organism":      d.get("Organism", ""),
+                "assembly_name": d.get("AssemblyName", ""),
+                "assembly_level":d.get("AssemblyStatus", ""),
+                "ftp_path":      d.get("FtpPath_RefSeq", "") or d.get("FtpPath_GenBank", ""),
+                "species_taxid": d.get("SpeciesTaxid", ""),
+                "submitter":     d.get("SubmitterOrganization", ""),
+                "biosample":     d.get("BioSampleAccn", ""),
+            })
+        time.sleep(0.4)
+    return pd.DataFrame(rows)
+
+
+def download_gbff(ftp_path, outdir):
+    if not ftp_path:
+        return None
+    base = ftp_path.replace("ftp://", "https://")
+    asm  = os.path.basename(ftp_path)
+    url  = f"{base}/{asm}_genomic.gbff.gz"
+    out  = os.path.join(outdir, f"{asm}.gbff.gz")
+    if os.path.exists(out) and os.path.getsize(out) > 1000:
+        return out
     try:
-        handle = Entrez.efetch(db="nucleotide", id=accession, rettype="gbwithparts", retmode="text")
-        content = handle.read()
-        handle.close()
-        if len(content) > 5000:
-            with open(out_file, 'w') as f:
-                f.write(content)
-            return f"✅ {accession}"
-    except:
-        pass
-    return f"❌ {accession}"
-
-tasks = [(acc, group) for group, accs in ALL_GENOMES.items() for acc in accs]
-results = []
-with ThreadPoolExecutor(max_workers=20) as executor:
-    futures = [executor.submit(download_genome, acc, group) for acc, group in tasks]
-    for future in as_completed(futures):
-        results.append(future.result())
-
-success = len([r for r in results if '✅' in r])
-print(f"✅ Downloaded {success} genomes")
-
-# ============================================
-# PART 4: FEATURE EXTRACTION
-# ============================================
-print("\n🔬 Extracting features...")
-
-def extract_features(file_path):
-    try:
-        records = list(SeqIO.parse(file_path, "genbank"))
-        if not records:
-            return None
-        record = records[0]
-        seq = str(record.seq).upper()
-        if len(seq) < 1000:
-            return None
-        
-        basename = os.path.basename(file_path)
-        group = basename.split('_')[0]
-        if group not in ['thermophile', 'halophile', 'acidophile', 'mesophile']:
-            return None
-        
-        genome_size = len(seq) / 1_000_000
-        gc = (seq.count('G') + seq.count('C')) / len(seq) * 100
-        genes = [f for f in record.features if f.type == "CDS"]
-        gene_count = len(genes)
-        
-        gene_lengths = []
-        for gene in genes[:100]:
-            try:
-                gene_seq = gene.extract(record.seq)
-                if len(gene_seq) > 30:
-                    gene_lengths.append(len(gene_seq))
-            except:
-                continue
-        avg_gene_len = np.mean(gene_lengths) if gene_lengths else 0
-        
-        te_count = 0
-        for feature in record.features:
-            if any(kw in str(feature.qualifiers).lower() for kw in ['transpos', 'insertion', 'IS']):
-                te_count += 1
-        
-        gc3_values = []
-        for gene in genes[:50]:
-            try:
-                cds = str(gene.extract(record.seq))
-                if len(cds) >= 9:
-                    gc3 = sum(1 for i in range(2, len(cds), 3) if i < len(cds) and cds[i] in 'GC')
-                    gc3_values.append(gc3 / max(1, len(cds)//3))
-            except:
-                continue
-        gc3 = np.mean(gc3_values) if gc3_values else 0
-        
-        return {
-            'accession': basename.replace('.gb', ''),
-            'group': group,
-            'genome_size_mb': genome_size,
-            'gc_content': gc,
-            'gene_count': gene_count,
-            'avg_gene_len': avg_gene_len,
-            'te_count': te_count,
-            'gc3': gc3
-        }
-    except:
+        import urllib.request
+        urllib.request.urlretrieve(url, out)
+        return out
+    except Exception as e:
+        print(f"  download failed for {asm}: {e}")
         return None
 
-gb_files = list(GENOME_DIR.glob("*.gb"))
-features = []
-for f in gb_files:
-    feat = extract_features(f)
-    if feat:
-        features.append(feat)
 
-df = pd.DataFrame(features)
-df = df[df['group'].isin(['thermophile', 'halophile', 'acidophile', 'mesophile'])]
-df = df[df['gene_count'] > 0]
-df = df[df['genome_size_mb'] > 0.01]
+def extract_features(gbff_path):
+    import gzip
+    opener = gzip.open if gbff_path.endswith(".gz") else open
+    features = {"genome_size_mb": None, "gc_content": None,
+                "gene_count": 0, "te_count": 0,
+                "avg_gene_length": None, "gc3": None}
+    try:
+        with opener(gbff_path, "rt", errors="ignore") as fh:
+            record = next(SeqIO.parse(fh, "genbank"))
+    except Exception as e:
+        print(f"  parse failed: {e}")
+        return None
+    seq = str(record.seq).upper()
+    n   = len(seq)
+    if n == 0:
+        return None
+    features["genome_size_mb"] = n / 1e6
+    features["gc_content"] = (seq.count("G") + seq.count("C")) / n * 100
 
-print(f"✅ Extracted features from {len(df)} genomes")
-print("\nGroup distribution:")
-print(df['group'].value_counts())
+    cds_lengths = []
+    te_count    = 0
+    third_pos   = []
+    te_keywords = ("transposase", "insertion sequence", "is element",
+                   "integrase", "transposon")
 
-df.to_csv(TABLE_DIR / "Master_Data.csv", index=False)
-print(f"✅ Data saved to: {TABLE_DIR}/Master_Data.csv")
+    for feat in record.features:
+        if feat.type == "CDS":
+            features["gene_count"] += 1
+            try:
+                start = int(feat.location.start)
+                end   = int(feat.location.end)
+                cds_lengths.append(end - start)
+                cds = seq[start:end]
+                L = (len(cds)//3)*3
+                cds = cds[:L]
+                for i in range(2, L, 3):
+                    third_pos.append(cds[i])
+            except Exception:
+                continue
+        qual_text = " ".join(
+            str(v).lower()
+            for vals in feat.qualifiers.values()
+            for v in (vals if isinstance(vals, list) else [vals])
+        )
+        if any(k in qual_text for k in te_keywords):
+            te_count += 1
 
-# ============================================
-# PART 5: STATISTICAL ANALYSIS
-# ============================================
-print("\n" + "="*75)
-print("STATISTICAL ANALYSIS")
-print("="*75)
+    features["te_count"] = te_count
+    if cds_lengths:
+        features["avg_gene_length"] = float(np.mean(cds_lengths))
+    if third_pos:
+        features["gc3"] = (third_pos.count("G") + third_pos.count("C")) / len(third_pos)
+    return features
 
-numeric_cols = ['gc_content', 'gene_count', 'te_count', 'genome_size_mb', 'avg_gene_len', 'gc3']
-environments = ['thermophile', 'halophile', 'acidophile', 'mesophile']
 
-print("\nSummary Statistics:")
-summary = df.groupby('group')[numeric_cols].agg(['mean', 'std']).round(2)
-print(summary)
+def run_pipeline(max_genomes=300):
+    ids = search_archaeal_genomes(retmax=max_genomes)
+    if not ids:
+        return pd.DataFrame()
+    meta = fetch_assembly_summary(ids)
+    meta["environment"] = meta["organism"].apply(classify_environment)
+    meta = meta.dropna(subset=["environment"]).reset_index(drop=True)
+    print(f"After classification: {len(meta)} genomes")
+    print(meta["environment"].value_counts())
 
-print("\nKruskal-Wallis Tests:")
-kw_results = []
-for col in numeric_cols:
-    groups = [df[df['group']==g][col].dropna().values for g in df['group'].unique()]
-    groups = [g for g in groups if len(g) > 1]
-    if len(groups) >= 2:
-        try:
-            h, p = kruskal(*groups)
-            sig = '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else 'ns'
-            print(f"{col:20} H={h:.3f}, p={p:.4f} {sig}")
-            kw_results.append({'Feature': col.replace('_', ' ').title(), 'H': round(h, 3), 'p': p, 'sig': sig})
-        except:
-            pass
+    rows = []
+    for _, r in tqdm(meta.iterrows(), total=len(meta)):
+        gbff = download_gbff(r["ftp_path"], OUTDIR)
+        if not gbff:
+            continue
+        feats = extract_features(gbff)
+        if not feats:
+            continue
+        rows.append({"assembly_id": r["assembly_id"],
+                     "organism":    r["organism"],
+                     "environment": r["environment"],
+                     **feats})
+        time.sleep(0.05)
+    df = pd.DataFrame(rows)
+    df = df.dropna(subset=["genome_size_mb","gc_content","gene_count",
+                           "avg_gene_length","gc3"]).reset_index(drop=True)
+    df = df[(df["genome_size_mb"] > 0.01) & (df["gene_count"] > 0)]
+    return df
 
-# ============================================
-# PART 6: WHEATSHEAF INDEX (CONVERGENCE)
-# ============================================
-print("\nWheatsheaf Index:")
 
-feature_cols = ['gc_content', 'gene_count', 'te_count', 'genome_size_mb']
-X = StandardScaler().fit_transform(df[feature_cols].values)
+print("=" * 60)
+print("STEP 1 — DOWNLOAD + FEATURE EXTRACTION")
+print("=" * 60)
+df_raw = run_pipeline(max_genomes=300)
+csv_path = os.path.join(OUTDIR, "archaeal_genomes_features.csv")
+df_raw.to_csv(csv_path, index=False)
+print(f"Saved raw dataset: {csv_path} ({len(df_raw)} genomes)")
 
-def wheatsheaf_index(X, labels, target):
-    dist = squareform(pdist(X))
-    t_idx = [i for i, g in enumerate(labels) if g == target]
-    o_idx = [i for i, g in enumerate(labels) if g != target]
-    if len(t_idx) < 3:
+
+# ============================================================
+# SECTION 3 — REBALANCE + STATISTICS + 20 FIGURES
+# ============================================================
+print("\n" + "=" * 60)
+print("STEP 2 — REBALANCE + STATISTICS + FIGURES")
+print("=" * 60)
+
+np.random.seed(42)
+CAP = 30
+samples = []
+for g in GROUPS:
+    sub = df_raw[df_raw['environment'] == g]
+    if len(sub) > CAP:
+        sub = sub.sample(CAP, random_state=42)
+    samples.append(sub)
+df = pd.concat(samples, ignore_index=True)
+
+print(f"Rebalanced dataset: {len(df)} genomes (cap = {CAP} per group)")
+print(df['environment'].value_counts())
+
+FEATURES = ['gc_content','gene_count','te_count',
+            'genome_size_mb','avg_gene_length','gc3']
+FEATURE_LABELS_LIST = [FEATURE_LABELS[f] for f in FEATURES]
+
+X = df[FEATURES].values
+X_std = StandardScaler().fit_transform(X)
+labels = df['environment'].values
+
+# ---------- Kruskal-Wallis ----------
+print("\nKRUSKAL-WALLIS")
+kw_results = {}
+for f, lab in zip(FEATURES, FEATURE_LABELS_LIST):
+    groups = [df[df['environment']==g][f].values for g in GROUPS]
+    H, p = stats.kruskal(*groups)
+    kw_results[f] = (H, p)
+    sig = "***" if p<0.001 else "**" if p<0.01 else "*" if p<0.05 else "ns"
+    print(f"  {lab:<22} H = {H:8.3f}  p = {p:.4g}  {sig}")
+
+# ---------- Spearman correlations ----------
+corr = df[FEATURES].corr('spearman')
+corr.columns = FEATURE_LABELS_LIST
+corr.index   = FEATURE_LABELS_LIST
+print("\nSPEARMAN CORRELATIONS")
+print(corr.round(3))
+
+# ---------- Wheatsheaf Index ----------
+def wheatsheaf(Xs, labs, target):
+    within  = Xs[labs == target]
+    between = Xs[labs != target]
+    if len(within) < 2 or len(between) < 2:
         return np.nan
-    within = np.mean([dist[i][j] for i in t_idx for j in t_idx if i < j])
-    between = np.mean([dist[i][j] for i in t_idx for j in o_idx])
-    return within / between if between > 0 else np.nan
+    return pdist(within,'euclidean').mean() / pdist(between,'euclidean').mean()
 
-ws_results = []
-for group in df['group'].unique():
-    ws = wheatsheaf_index(X, df['group'].values, group)
-    if not np.isnan(ws):
-        if ws < 0.8:
-            status = "🔥 STRONG convergence"
-        elif ws < 1.0:
-            status = "📊 MODERATE convergence"
+WS = {g: wheatsheaf(X_std, labels, g) for g in GROUPS}
+print("\nWHEATSHEAF INDEX")
+for g in GROUPS:
+    print(f"  {g:<14} WS = {WS[g]:.3f}")
+
+# ---------- Silhouette ----------
+sil_global = silhouette_score(X_std, labels)
+sil_per_sample = silhouette_samples(X_std, labels)
+print(f"\nSilhouette: {sil_global:.3f}")
+
+# ---------- PCA ----------
+pca = PCA(n_components=min(6, len(FEATURES)))
+pcs = pca.fit_transform(X_std)
+var = pca.explained_variance_ratio_ * 100
+print(f"PCA: PC1 = {var[0]:.1f}%, PC2 = {var[1]:.1f}%, total = {var[0]+var[1]:.1f}%")
+
+# ---------- Save stats summary ----------
+with open(os.path.join(OUTDIR, "stats_summary.txt"), "w") as fh:
+    fh.write("KRUSKAL-WALLIS\n")
+    for f,(H,p) in kw_results.items():
+        fh.write(f"{f}\tH={H:.4f}\tp={p:.4g}\n")
+    fh.write("\nWHEATSHEAF\n")
+    for g,v in WS.items():
+        fh.write(f"{g}\t{v:.4f}\n")
+    fh.write(f"\nSILHOUETTE\t{sil_global:.4f}\n")
+    fh.write(f"PCA\tPC1={var[0]:.2f}\tPC2={var[1]:.2f}\n")
+
+# ---------- Helper: save a figure ----------
+figure_files = []
+def save_fig(fig, name):
+    path = os.path.join(FIGDIR, name)
+    fig.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    figure_files.append(name)
+    print(f"  Saved {name}")
+
+def add_ellipse(ax, x, y, color, n_std=2.0, alpha=0.15):
+    if len(x) < 3: return
+    cov = np.cov(x, y)
+    vals, vecs = np.linalg.eigh(cov)
+    order = vals.argsort()[::-1]
+    vals, vecs = vals[order], vecs[:,order]
+    angle = np.degrees(np.arctan2(*vecs[:,0][::-1]))
+    w, h = 2*n_std*np.sqrt(vals)
+    ax.add_patch(Ellipse((np.mean(x), np.mean(y)),
+                         width=w, height=h, angle=angle,
+                         facecolor=color, alpha=alpha,
+                         edgecolor=color, lw=1))
+
+
+# ---------- VIEW 1 — Dataset & Distribution ----------
+print("\nVIEW 1 — Dataset & Distribution")
+
+# Figure 1 — group sizes
+fig, ax = plt.subplots(figsize=(6,4))
+sizes = [(df['environment']==g).sum() for g in GROUPS]
+bars = ax.bar(GROUP_LABELS, sizes, color=[COLORS[g] for g in GROUPS],
+              edgecolor='black', linewidth=0.8)
+for b, s in zip(bars, sizes):
+    ax.text(b.get_x()+b.get_width()/2, s+0.5, str(s), ha='center', fontsize=10)
+ax.set_ylabel('Number of genomes')
+ax.set_title(f'Dataset composition (n = {len(df)})')
+plt.tight_layout(); save_fig(fig, "Figure01_group_sizes.png")
+
+# Figure 2 — genome size histograms
+fig, axes = plt.subplots(2,2, figsize=(9,7))
+for i, g in enumerate(GROUPS):
+    ax = axes.flat[i]
+    sub = df[df['environment']==g]['genome_size_mb']
+    ax.hist(sub, bins=12, color=COLORS[g], edgecolor='white', alpha=0.9)
+    ax.axvline(sub.mean(), color='black', linestyle='--', lw=1.2,
+               label=f'mean = {sub.mean():.2f}')
+    ax.set_title(f'{g.capitalize()} (n={len(sub)})')
+    ax.set_xlabel('Genome size (MB)'); ax.set_ylabel('Count')
+    ax.legend(fontsize=8)
+plt.suptitle('Genome size distribution per group', y=1.00, fontweight='bold')
+plt.tight_layout(); save_fig(fig, "Figure02_genome_size_hist.png")
+
+# Figure 3 — gene count histograms
+fig, axes = plt.subplots(2,2, figsize=(9,7))
+for i, g in enumerate(GROUPS):
+    ax = axes.flat[i]
+    sub = df[df['environment']==g]['gene_count']
+    ax.hist(sub, bins=12, color=COLORS[g], edgecolor='white', alpha=0.9)
+    ax.axvline(sub.mean(), color='black', linestyle='--', lw=1.2,
+               label=f'mean = {sub.mean():.0f}')
+    ax.set_title(f'{g.capitalize()} (n={len(sub)})')
+    ax.set_xlabel('Gene count'); ax.set_ylabel('Count')
+    ax.legend(fontsize=8)
+plt.suptitle('Gene count distribution per group', y=1.00, fontweight='bold')
+plt.tight_layout(); save_fig(fig, "Figure03_gene_count_hist.png")
+
+# Figure 4 — GC content histograms
+fig, axes = plt.subplots(2,2, figsize=(9,7))
+for i, g in enumerate(GROUPS):
+    ax = axes.flat[i]
+    sub = df[df['environment']==g]['gc_content']
+    ax.hist(sub, bins=12, color=COLORS[g], edgecolor='white', alpha=0.9)
+    ax.axvline(sub.mean(), color='black', linestyle='--', lw=1.2,
+               label=f'mean = {sub.mean():.1f}%')
+    ax.set_title(f'{g.capitalize()} (n={len(sub)})')
+    ax.set_xlabel('GC content (%)'); ax.set_ylabel('Count')
+    ax.legend(fontsize=8)
+plt.suptitle('GC content distribution per group', y=1.00, fontweight='bold')
+plt.tight_layout(); save_fig(fig, "Figure04_gc_content_hist.png")
+
+
+# ---------- VIEW 2 — Comparative Genomic Features ----------
+print("\nVIEW 2 — Comparative Genomic Features")
+
+# Figure 5 — boxplots
+fig, axes = plt.subplots(2,2, figsize=(10,7))
+for i, (f, lab) in enumerate(zip(FEATURES[:4], FEATURE_LABELS_LIST[:4])):
+    ax = axes.flat[i]
+    sns.boxplot(data=df, x='environment', y=f, order=GROUPS,
+                palette=[COLORS[g] for g in GROUPS], ax=ax, showmeans=True,
+                meanprops={'marker':'D','markerfacecolor':'white',
+                           'markeredgecolor':'black','markersize':6})
+    ax.set_title(lab); ax.set_xlabel(''); ax.set_xticklabels(GROUP_LABELS)
+    ax.grid(axis='y', alpha=0.25)
+plt.suptitle('Boxplots of genomic features', y=1.00, fontweight='bold')
+plt.tight_layout(); save_fig(fig, "Figure05_boxplots.png")
+
+# Figure 6 — violins
+fig, axes = plt.subplots(2,2, figsize=(10,7))
+for i, (f, lab) in enumerate(zip(FEATURES[:4], FEATURE_LABELS_LIST[:4])):
+    ax = axes.flat[i]
+    sns.violinplot(data=df, x='environment', y=f, order=GROUPS,
+                   palette=[COLORS[g] for g in GROUPS], ax=ax, inner='quartile')
+    ax.set_title(lab); ax.set_xlabel(''); ax.set_xticklabels(GROUP_LABELS)
+    ax.grid(axis='y', alpha=0.25)
+plt.suptitle('Violin plots of genomic features', y=1.00, fontweight='bold')
+plt.tight_layout(); save_fig(fig, "Figure06_violins.png")
+
+# Figure 7 — ridge plot (gene count)
+fig, ax = plt.subplots(figsize=(8,5))
+y_positions = np.arange(len(GROUPS))
+for i, g in enumerate(GROUPS):
+    vals = df[df['environment']==g]['gene_count'].values
+    if len(vals) < 3: continue
+    kde = gaussian_kde(vals)
+    xs = np.linspace(vals.min(), vals.max(), 200)
+    ys = kde(xs); ys = ys / ys.max() * 0.8
+    ax.fill_between(xs, i, i+ys, color=COLORS[g], alpha=0.7,
+                    edgecolor='black', linewidth=0.6)
+ax.set_yticks(y_positions); ax.set_yticklabels(GROUP_LABELS)
+ax.set_xlabel('Gene count')
+ax.set_title('Ridge plot — gene count per group')
+plt.tight_layout(); save_fig(fig, "Figure07_ridge_gene_count.png")
+
+# Figure 8 — strip plots
+fig, axes = plt.subplots(2,3, figsize=(12,7))
+for i, (f, lab) in enumerate(zip(FEATURES, FEATURE_LABELS_LIST)):
+    ax = axes.flat[i]
+    sns.stripplot(data=df, x='environment', y=f, order=GROUPS,
+                  palette=[COLORS[g] for g in GROUPS], ax=ax,
+                  jitter=0.25, size=4, alpha=0.7,
+                  edgecolor='black', linewidth=0.3)
+    ax.set_title(lab); ax.set_xlabel('')
+    ax.set_xticklabels(GROUP_LABELS, rotation=20)
+    ax.grid(axis='y', alpha=0.25)
+plt.suptitle('All genomes — strip plots', y=1.00, fontweight='bold')
+plt.tight_layout(); save_fig(fig, "Figure08_strip_all.png")
+
+
+# ---------- VIEW 3 — Multivariate Structure ----------
+print("\nVIEW 3 — Multivariate Structure")
+
+# Figure 9 — PCA with ellipses
+fig, ax = plt.subplots(figsize=(8,6))
+for g in GROUPS:
+    m = labels == g
+    ax.scatter(pcs[m,0], pcs[m,1], c=COLORS[g], label=g.capitalize(),
+               s=55, alpha=0.8, edgecolors='black', linewidths=0.5)
+    add_ellipse(ax, pcs[m,0], pcs[m,1], COLORS[g], n_std=2.0)
+ax.set_xlabel(f'PC1 ({var[0]:.1f}%)')
+ax.set_ylabel(f'PC2 ({var[1]:.1f}%)')
+ax.set_title(f'PCA of archaeal genomes (n={len(df)})')
+ax.legend(loc='upper right'); ax.grid(alpha=0.25)
+plt.tight_layout(); save_fig(fig, "Figure09_pca_ellipses.png")
+
+# Figure 10 — PCA with loadings
+fig, ax = plt.subplots(figsize=(8,6))
+for g in GROUPS:
+    m = labels == g
+    ax.scatter(pcs[m,0], pcs[m,1], c=COLORS[g], label=g.capitalize(),
+               s=45, alpha=0.7, edgecolors='black', linewidths=0.4)
+scale = 1.4 * np.abs(pcs[:,:2]).max()
+for i, lab in enumerate(FEATURE_LABELS_LIST):
+    x = pca.components_[0,i] * scale
+    y = pca.components_[1,i] * scale
+    ax.annotate('', xy=(x,y), xytext=(0,0),
+                arrowprops=dict(arrowstyle='->', color='gray', lw=1))
+    ax.text(x*1.08, y*1.08, lab, fontsize=8, color='dimgray')
+ax.set_xlabel(f'PC1 ({var[0]:.1f}%)')
+ax.set_ylabel(f'PC2 ({var[1]:.1f}%)')
+ax.set_title('PCA with feature loadings')
+ax.legend(loc='upper right'); ax.grid(alpha=0.25)
+plt.tight_layout(); save_fig(fig, "Figure10_pca_loadings.png")
+
+# Figure 11 — t-SNE
+tsne = TSNE(n_components=2, perplexity=min(20, len(df)-1),
+            random_state=42, init='pca', learning_rate='auto')
+emb = tsne.fit_transform(X_std)
+fig, ax = plt.subplots(figsize=(8,6))
+for g in GROUPS:
+    m = labels == g
+    ax.scatter(emb[m,0], emb[m,1], c=COLORS[g], label=g.capitalize(),
+               s=55, alpha=0.8, edgecolors='black', linewidths=0.5)
+ax.set_xlabel('t-SNE 1'); ax.set_ylabel('t-SNE 2')
+ax.set_title(f't-SNE embedding (n={len(df)})')
+ax.legend(loc='upper right'); ax.grid(alpha=0.25)
+plt.tight_layout(); save_fig(fig, "Figure11_tsne.png")
+
+# Figure 12 — dendrogram
+fig, ax = plt.subplots(figsize=(10,4))
+Z = linkage(X_std, method='ward')
+dendrogram(Z, ax=ax, no_labels=True, color_threshold=0)
+ax.set_title('Hierarchical clustering of genomes (Ward linkage)')
+ax.set_ylabel('Distance')
+plt.tight_layout(); save_fig(fig, "Figure12_dendrogram.png")
+
+
+# ---------- VIEW 4 — Correlations & Relationships ----------
+print("\nVIEW 4 — Correlations & Relationships")
+
+# Figure 13 — correlation heatmap
+fig, ax = plt.subplots(figsize=(8,6.5))
+sns.heatmap(corr, annot=True, fmt='.2f', cmap='RdBu_r',
+            center=0, vmin=-1, vmax=1, square=True,
+            linewidths=0.5, ax=ax,
+            cbar_kws={'label':'Spearman correlation'})
+ax.set_title('Spearman correlations among genomic features')
+plt.tight_layout(); save_fig(fig, "Figure13_correlation_heatmap.png")
+
+# Figure 14 — pairwise scatter (corner)
+plot_df = df[['environment'] + FEATURES[:4]].copy()
+plot_df['environment'] = pd.Categorical(plot_df['environment'],
+                                        categories=GROUPS, ordered=True)
+g_obj = sns.pairplot(plot_df, hue='environment', hue_order=GROUPS,
+                     palette=[COLORS[g] for g in GROUPS],
+                     diag_kind='kde', corner=False, height=1.8,
+                     plot_kws={'alpha':0.75,'s':25,
+                               'edgecolor':'black','linewidth':0.3})
+g_obj.fig.suptitle('Pairwise scatter matrix', y=1.01, fontweight='bold')
+plt.savefig(os.path.join(FIGDIR, "Figure14_pairwise_scatter.png"),
+            dpi=300, bbox_inches='tight')
+plt.close(g_obj.fig)
+figure_files.append("Figure14_pairwise_scatter.png")
+print("  Saved Figure14_pairwise_scatter.png")
+
+# Figure 15 — gene count vs genome size
+fig, ax = plt.subplots(figsize=(7,5))
+for g in GROUPS:
+    m = df['environment']==g
+    ax.scatter(df.loc[m,'gene_count'], df.loc[m,'genome_size_mb'],
+               c=COLORS[g], label=g.capitalize(), s=45, alpha=0.8,
+               edgecolors='black', linewidths=0.4)
+    if m.sum() >= 3:
+        z = np.polyfit(df.loc[m,'gene_count'], df.loc[m,'genome_size_mb'], 1)
+        xs = np.linspace(df.loc[m,'gene_count'].min(),
+                         df.loc[m,'gene_count'].max(), 50)
+        ax.plot(xs, np.polyval(z, xs), color=COLORS[g], lw=1.5, alpha=0.8)
+ax.set_xlabel('Gene count'); ax.set_ylabel('Genome size (MB)')
+ax.set_title('Gene count vs. genome size')
+ax.legend(loc='lower right'); ax.grid(alpha=0.25)
+plt.tight_layout(); save_fig(fig, "Figure15_gene_vs_size.png")
+
+# Figure 16 — GC vs GC3
+fig, ax = plt.subplots(figsize=(7,5))
+for g in GROUPS:
+    m = df['environment']==g
+    ax.scatter(df.loc[m,'gc_content'], df.loc[m,'gc3'],
+               c=COLORS[g], label=g.capitalize(), s=45, alpha=0.8,
+               edgecolors='black', linewidths=0.4)
+r, _ = stats.spearmanr(df['gc_content'], df['gc3'])
+ax.set_xlabel('GC content (%)'); ax.set_ylabel('GC3')
+ax.set_title(f'GC content vs. GC3  (Spearman r = {r:.2f})')
+ax.legend(loc='lower right'); ax.grid(alpha=0.25)
+plt.tight_layout(); save_fig(fig, "Figure16_gc_vs_gc3.png")
+
+
+# ---------- VIEW 5 — Convergence & Environmental Signal ----------
+print("\nVIEW 5 — Convergence & Environmental Signal")
+
+# Figure 17 — Wheatsheaf Index
+fig, ax = plt.subplots(figsize=(7,5))
+names = [g.capitalize() for g in GROUPS]
+vals  = [WS[g] for g in GROUPS]
+bars = ax.bar(names, vals, color=[COLORS[g] for g in GROUPS],
+              edgecolor='black', linewidth=0.8)
+ax.axhline(1.0, color='red', linestyle='--', lw=1.5,
+           label='Divergence threshold (1.0)')
+for b, v in zip(bars, vals):
+    ax.text(b.get_x()+b.get_width()/2, v+0.01, f'{v:.3f}',
+            ha='center', fontsize=10)
+ax.set_ylabel('Wheatsheaf Index')
+ax.set_title('Wheatsheaf Index by group')
+ax.set_ylim(0, max(1.2, max(vals)*1.15))
+ax.legend(loc='lower right'); ax.grid(axis='y', alpha=0.25)
+plt.tight_layout(); save_fig(fig, "Figure17_wheatsheaf.png")
+
+# Figure 18 — silhouette plot
+fig, ax = plt.subplots(figsize=(7,5))
+y_lower = 10
+for g in GROUPS:
+    m = labels == g
+    sv = np.sort(sil_per_sample[m])
+    size = sv.shape[0]
+    y_upper = y_lower + size
+    ax.fill_betweenx(np.arange(y_lower, y_upper), 0, sv,
+                     facecolor=COLORS[g], edgecolor=COLORS[g], alpha=0.8)
+    ax.text(-0.05, y_lower + size/2, g.capitalize(), fontsize=9)
+    y_lower = y_upper + 10
+ax.axvline(sil_global, color='red', linestyle='--', lw=1.5,
+           label=f'Global = {sil_global:.3f}')
+ax.set_xlabel('Silhouette coefficient'); ax.set_yticks([])
+ax.set_title('Silhouette plot per group')
+ax.legend(loc='lower right')
+plt.tight_layout(); save_fig(fig, "Figure18_silhouette.png")
+
+# Figure 19 — distance to centroid
+fig, ax = plt.subplots(figsize=(7,5))
+dist_data = []
+for g in GROUPS:
+    m = labels == g
+    centroid = X_std[m].mean(axis=0)
+    d = np.linalg.norm(X_std[m] - centroid, axis=1)
+    for v in d:
+        dist_data.append({'group': g.capitalize(), 'distance': v})
+dist_df = pd.DataFrame(dist_data)
+sns.boxplot(data=dist_df, x='group', y='distance',
+            palette=[COLORS[g] for g in GROUPS], ax=ax)
+ax.set_xlabel(''); ax.set_ylabel('Euclidean distance to centroid')
+ax.set_title('Within-group dispersion')
+ax.grid(axis='y', alpha=0.25)
+plt.tight_layout(); save_fig(fig, "Figure19_centroid_distance.png")
+
+# Figure 20 — radar chart
+fig = plt.figure(figsize=(7,6))
+ax = fig.add_subplot(111, polar=True)
+z = StandardScaler().fit_transform(df[FEATURES])
+zdf = pd.DataFrame(z, columns=FEATURES); zdf['environment'] = df['environment']
+n_feat = len(FEATURES)
+angles = np.linspace(0, 2*np.pi, n_feat, endpoint=False).tolist()
+angles += angles[:1]
+for g in GROUPS:
+    means = zdf[zdf['environment']==g][FEATURES].mean().values.tolist()
+    means += means[:1]
+    ax.plot(angles, means, color=COLORS[g], lw=2, label=g.capitalize())
+    ax.fill(angles, means, color=COLORS[g], alpha=0.15)
+ax.set_xticks(angles[:-1])
+ax.set_xticklabels(FEATURE_LABELS_LIST, fontsize=9)
+ax.set_title('Mean standardized feature profile per group', pad=20)
+ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+plt.tight_layout(); save_fig(fig, "Figure20_radar.png")
+
+print(f"\nAll {len(figure_files)} figures saved to {FIGDIR}/")
+
+
+# ============================================================
+# SECTION 4 — PREVIEW GRID + ZIP FIGURES
+# ============================================================
+print("\n" + "=" * 60)
+print("STEP 3 — PREVIEW + ZIP FIGURES")
+print("=" * 60)
+
+png_files = sorted([os.path.join(FIGDIR, f) for f in os.listdir(FIGDIR)
+                    if f.startswith("Figure") and f.endswith(".png")])
+fig, axes = plt.subplots(5, 4, figsize=(20, 24))
+axes = axes.flatten()
+for i, ax in enumerate(axes):
+    if i < len(png_files):
+        img = mpimg.imread(png_files[i])
+        ax.imshow(img)
+        ax.set_title(os.path.basename(png_files[i]).replace('.png',''),
+                     fontsize=10, fontweight='bold')
+    ax.axis('off')
+plt.suptitle("Archaeal genomics — 20 figures (5 views × 4 panels)",
+             fontsize=16, fontweight='bold', y=0.995)
+plt.tight_layout()
+preview_path = "figures_preview_grid.png"
+plt.savefig(preview_path, dpi=80, bbox_inches='tight')
+plt.close()
+print(f"Preview grid saved: {preview_path}")
+
+zip_figs = "archaeal_figures.zip"
+with zipfile.ZipFile(zip_figs, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for f in png_files:
+        zf.write(f, arcname=os.path.basename(f))
+    for extra in ["archaeal_genomes_features.csv", "stats_summary.txt"]:
+        p = os.path.join(OUTDIR, extra)
+        if os.path.exists(p):
+            zf.write(p, arcname=extra)
+    if os.path.exists(preview_path):
+        zf.write(preview_path, arcname=os.path.basename(preview_path))
+print(f"Created {zip_figs}")
+
+
+# ============================================================
+# SECTION 5 — GENERATE ALL MANUSCRIPT TABLES
+# ============================================================
+print("\n" + "=" * 60)
+print("STEP 4 — TABLES")
+print("=" * 60)
+
+def save_table(tdf, name, caption, label, float_fmt="%.3f"):
+    tdf.to_csv(os.path.join(TABDIR, f"{name}.csv"))
+    latex = tdf.to_latex(
+        caption=caption, label=f"tab:{label}",
+        float_format=float_fmt, escape=False,
+        column_format="l" + "c"*(tdf.shape[1]-1),
+    )
+    with open(os.path.join(TABDIR, f"{name}.tex"), "w") as fh:
+        fh.write(latex)
+    print(f"  Saved {name}.csv / .tex")
+
+# --- Table 1 — Dataset composition ---
+rows = []
+for g in GROUPS:
+    sub = df[df['environment'] == g]
+    rows.append({'Group': g.capitalize(),
+                 'n': len(sub),
+                 'Percent': f"{100*len(sub)/len(df):.1f}%"})
+t1 = pd.DataFrame(rows)
+t1.loc[len(t1)] = {'Group': 'Total', 'n': len(df), 'Percent': '100.0%'}
+save_table(t1, "Table1_dataset_composition",
+           "Dataset composition by environmental class.",
+           "dataset_composition", float_fmt="%d")
+
+# --- Table 2 — Summary statistics ---
+summary_rows = []
+for g in GROUPS:
+    sub = df[df['environment'] == g]
+    row = {'Group': g.capitalize(), 'n': len(sub)}
+    for f in FEATURES:
+        m = sub[f].mean(); s = sub[f].std()
+        if f == 'gc3':
+            row[FEATURE_LABELS[f]] = f"{m:.3f} ± {s:.3f}"
+        elif f in ('genome_size_mb',):
+            row[FEATURE_LABELS[f]] = f"{m:.2f} ± {s:.2f}"
         else:
-            status = "⚠️ DIVERGENCE"
-        print(f"  {group.capitalize():15} WS={ws:.3f} → {status}")
-        ws_results.append({'Group': group.capitalize(), 'Wheatsheaf Index': round(ws, 3), 'Interpretation': status})
+            row[FEATURE_LABELS[f]] = f"{m:.0f} ± {s:.0f}"
+    summary_rows.append(row)
+t2 = pd.DataFrame(summary_rows)
+save_table(t2, "Table2_summary_statistics",
+           "Summary statistics (mean ± SD) per environmental group.",
+           "summary_statistics", float_fmt="%s")
 
-# ============================================
-# PART 7: PCA
-# ============================================
-print("\nPCA Analysis:")
-pca = PCA(n_components=2)
-X_pca = pca.fit_transform(X)
-print(f"PC1: {pca.explained_variance_ratio_[0]*100:.1f}%")
-print(f"PC2: {pca.explained_variance_ratio_[1]*100:.1f}%")
-print(f"Total: {sum(pca.explained_variance_ratio_)*100:.1f}%")
+# --- Table 3 — Kruskal-Wallis ---
+kw_rows = []
+for f in FEATURES:
+    H, p = kw_results[f]
+    sig = "***" if p<0.001 else "**" if p<0.01 else "*" if p<0.05 else "ns"
+    kw_rows.append({'Feature': FEATURE_LABELS[f],
+                    'H statistic': f"{H:.3f}",
+                    'p value': f"{p:.3g}",
+                    'Significance': sig})
+t3 = pd.DataFrame(kw_rows)
+save_table(t3, "Table3_kruskal_wallis",
+           "Kruskal-Wallis tests across environmental groups.",
+           "kruskal_wallis", float_fmt="%s")
 
-# ============================================
-# PART 8: FIGURES
-# ============================================
-print("\n📊 Generating figures...")
+# --- Table 4 — Mann-Whitney U (pairwise) ---
+mw_rows = []
+for f in FEATURES:
+    for i, g1 in enumerate(GROUPS):
+        for g2 in GROUPS[i+1:]:
+            a = df[df['environment']==g1][f].values
+            b = df[df['environment']==g2][f].values
+            if len(a) < 2 or len(b) < 2: continue
+            U, p = stats.mannwhitneyu(a, b, alternative='two-sided')
+            n1, n2 = len(a), len(b)
+            r = 2*U/(n1*n2) - 1
+            sig = "***" if p<0.001 else "**" if p<0.01 else "*" if p<0.05 else "ns"
+            mw_rows.append({'Feature': FEATURE_LABELS[f],
+                            'Comparison': f"{g1.capitalize()} vs {g2.capitalize()}",
+                            'U': f"{U:.1f}", 'p': f"{p:.3g}",
+                            'r': f"{r:+.3f}", 'Sig': sig})
+t4 = pd.DataFrame(mw_rows)
+save_table(t4, "Table4_mann_whitney",
+           "Pairwise Mann-Whitney U tests.",
+           "mann_whitney", float_fmt="%s")
 
-colors = {'thermophile': '#e74c3c', 'halophile': '#f39c12', 
-          'acidophile': '#2ecc71', 'mesophile': '#3498db'}
+# --- Table 5 — Correlations ---
+corr_rounded = corr.round(3)
+corr_rounded.insert(0, 'Feature', corr_rounded.index)
+save_table(corr_rounded, "Table5_correlations",
+           "Spearman rank correlations among genomic features.",
+           "correlations", float_fmt="%.3f")
 
-# Figure 1: PCA
-fig, ax = plt.subplots(figsize=(12, 8))
-for group in df['group'].unique():
-    mask = df['group'] == group
-    ax.scatter(X_pca[mask, 0], X_pca[mask, 1], c=colors.get(group, 'gray'), 
-               label=group.capitalize(), s=100, alpha=0.7, edgecolors='black', linewidth=1.5)
-ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=13)
-ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=13)
-ax.set_title(f'PCA of Archaeal Genomes (n={len(df)})', fontsize=15, fontweight='bold')
-ax.legend(fontsize=12)
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig(FIGURE_DIR / "Figure1_PCA.png", dpi=300)
-plt.close()
+# --- Table 6 — Wheatsheaf Index & silhouette ---
+ws_rows = []
+for g in GROUPS:
+    mask = labels == g
+    ws_rows.append({'Group': g.capitalize(),
+                    'n': int(mask.sum()),
+                    'Wheatsheaf Index': f"{WS[g]:.3f}",
+                    'Mean silhouette': f"{sil_per_sample[mask].mean():.3f}",
+                    'Interpretation': 'Convergence' if WS[g] < 1 else 'Divergence'})
+ws_rows.append({'Group': 'Global', 'n': len(df),
+                'Wheatsheaf Index': '—',
+                'Mean silhouette': f"{sil_global:.3f}",
+                'Interpretation': 'Overall separation'})
+t6 = pd.DataFrame(ws_rows)
+save_table(t6, "Table6_wheatsheaf_silhouette",
+           "Wheatsheaf Index (WS) and mean silhouette per group.",
+           "wheatsheaf_silhouette", float_fmt="%s")
 
-# Figure 2: Heatmap
-fig, ax = plt.subplots(figsize=(10, 6))
-heatmap_data = df.groupby('group')[['gc_content', 'gene_count', 'te_count', 'genome_size_mb']].mean().T
-sns.heatmap(heatmap_data, annot=True, cmap='coolwarm', fmt='.2f', ax=ax, linewidths=0.5, linecolor='black')
-ax.set_title('Genomic Signatures by Environment', fontsize=14, fontweight='bold')
-plt.tight_layout()
-plt.savefig(FIGURE_DIR / "Figure2_Heatmap.png", dpi=300)
-plt.close()
+# --- Table 7 — PCA loadings ---
+loadings = pd.DataFrame(
+    pca.components_.T,
+    index=[FEATURE_LABELS[f] for f in FEATURES],
+    columns=['PC1','PC2','PC3']
+).round(3)
+loadings.insert(0, 'Feature', loadings.index)
+loadings.loc[len(loadings)] = ['Variance explained (%)',
+                                f"{var[0]:.1f}",
+                                f"{var[1]:.1f}",
+                                f"{var[2]:.1f}"]
+save_table(loadings, "Table7_pca_loadings",
+           "PCA loadings for the top three components.",
+           "pca_loadings", float_fmt="%.3f")
 
-# Figure 3: Boxplots
-fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-axes = axes.flatten()
-box_features = [
-    ('gene_count', 'Gene Count'),
-    ('genome_size_mb', 'Genome Size (MB)'),
-    ('gc_content', 'GC Content (%)'),
-    ('te_count', 'Transposable Elements')
-]
-for i, (col, label) in enumerate(box_features):
-    ax = axes[i]
-    data = [df[df['group']==g][col].dropna().values for g in df['group'].unique()]
-    bp = ax.boxplot(data, labels=[g.capitalize() for g in df['group'].unique()], 
-                    patch_artist=True, showmeans=True, meanline=True)
-    for j, group in enumerate(df['group'].unique()):
-        bp['boxes'][j].set_facecolor(colors.get(group, 'gray'))
-        bp['boxes'][j].set_alpha(0.7)
-    ax.set_title(label, fontsize=12, fontweight='bold')
-    ax.grid(True, alpha=0.3)
-plt.suptitle('Distribution of Genomic Features', fontsize=16, fontweight='bold')
-plt.tight_layout()
-plt.savefig(FIGURE_DIR / "Figure3_Boxplots.png", dpi=300)
-plt.close()
+# --- Table 8 — Full genome list ---
+t8 = df[['assembly_id','organism','environment',
+         'gc_content','gene_count','te_count','genome_size_mb',
+         'avg_gene_length','gc3']].copy()
+t8.columns = ['Assembly ID','Organism','Environment',
+              'GC content (%)','Gene count','TE count',
+              'Genome size (MB)','Avg gene length (bp)','GC3']
+t8 = t8.sort_values(['Environment','Organism']).reset_index(drop=True)
+t8.to_csv(os.path.join(TABDIR, "Table8_genome_list.csv"), index=False)
+print("  Saved Table8_genome_list.csv")
 
-# Figure 4: Correlation Matrix
-fig, ax = plt.subplots(figsize=(10, 8))
-corr_matrix = df[numeric_cols].corr(method='spearman')
-mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
-sns.heatmap(corr_matrix, mask=mask, annot=True, fmt='.2f', cmap='coolwarm',
-            center=0, square=True, linewidths=0.5, ax=ax,
-            cbar_kws={'label': 'Spearman Correlation'})
-ax.set_title('Spearman Correlations Among Genomic Features', fontsize=14, fontweight='bold')
-plt.tight_layout()
-plt.savefig(FIGURE_DIR / "Figure4_Correlation_Matrix.png", dpi=300)
-plt.close()
+# Zip tables
+zip_tables = "archaeal_tables.zip"
+with zipfile.ZipFile(zip_tables, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for fn in os.listdir(TABDIR):
+        zf.write(os.path.join(TABDIR, fn), arcname=fn)
+print(f"Created {zip_tables}")
 
-# Figure 5: Violin Plots
-fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-axes = axes.flatten()
-for i, (col, label) in enumerate(zip(numeric_cols, ['GC Content (%)', 'Gene Count', 'TE Count', 'Genome Size (MB)', 'Avg Gene Length', 'GC3'])):
-    ax = axes[i]
-    data = [df[df['group']==g][col].dropna().values for g in df['group'].unique()]
-    parts = ax.violinplot(data, positions=[0, 1, 2, 3], widths=0.7, showmeans=True, showmedians=True)
-    for j, group in enumerate(df['group'].unique()):
-        parts['bodies'][j].set_facecolor(colors.get(group, 'gray'))
-        parts['bodies'][j].set_alpha(0.7)
-    ax.set_xticks([0, 1, 2, 3])
-    ax.set_xticklabels([g.capitalize() for g in df['group'].unique()])
-    ax.set_ylabel(label)
-    ax.set_title(label, fontsize=12, fontweight='bold')
-    ax.grid(True, alpha=0.3)
-plt.suptitle('Distribution of Genomic Features by Environment', fontsize=16, fontweight='bold')
-plt.tight_layout()
-plt.savefig(FIGURE_DIR / "Figure5_Violin_Plots.png", dpi=300)
-plt.close()
-
-# Figure 6: Pairwise Scatter (simplified)
-g = sns.pairplot(df, vars=['gc_content', 'gene_count', 'te_count', 'genome_size_mb'], 
-                 hue='group', palette=colors, diag_kind='kde')
-g.fig.suptitle('Pairwise Relationships Between Genomic Features', y=1.02, fontsize=16, fontweight='bold')
-plt.tight_layout()
-plt.savefig(FIGURE_DIR / "Figure6_Pairwise_Scatter.png", dpi=300)
-plt.close()
-
-# Figure 7: Silhouette & Compactness
-sil_score = silhouette_score(X, df['group'].values)
-fig, ax = plt.subplots(figsize=(10, 8))
-scatter = ax.scatter(X_pca[:, 0], X_pca[:, 1], c=df['group'].map(colors), s=80, alpha=0.7, edgecolors='black')
-from matplotlib.patches import Patch
-legend_elements = [Patch(facecolor=colors[g], label=g.capitalize()) for g in df['group'].unique()]
-ax.legend(handles=legend_elements)
-ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=12)
-ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=12)
-ax.set_title(f'Silhouette Score: {sil_score:.3f}', fontsize=14, fontweight='bold')
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig(FIGURE_DIR / "Figure7_Silhouette_Compactness.png", dpi=300)
-plt.close()
-
-print("✅ All figures generated!")
-
-# ============================================
-# PART 9: SAVE TABLES
-# ============================================
-print("\n📊 Saving tables...")
-
-summary.to_csv(TABLE_DIR / "Table1_Summary_Statistics.csv")
-pd.DataFrame(kw_results).to_csv(TABLE_DIR / "Table2_KruskalWallis.csv", index=False)
-pd.DataFrame(ws_results).to_csv(TABLE_DIR / "Table3_WheatsheafIndex.csv", index=False)
-
-# PCA Coordinates
-pca_coords = pd.DataFrame({'Group': df['group'].values, 'PC1': X_pca[:, 0], 'PC2': X_pca[:, 1]})
-pca_coords.to_csv(TABLE_DIR / "Table4_PCA_Coordinates.csv", index=False)
-
-corr_matrix.to_csv(TABLE_DIR / "Table5_Correlation_Matrix.csv")
-
-# Pairwise statistics
-pairwise_results = []
-for col in numeric_cols:
-    for i, g1 in enumerate(environments):
-        for g2 in environments[i+1:]:
-            if g1 in df['group'].unique() and g2 in df['group'].unique():
-                data1 = df[df['group']==g1][col].dropna().values
-                data2 = df[df['group']==g2][col].dropna().values
-                if len(data1) > 1 and len(data2) > 1:
-                    stat, p = mannwhitneyu(data1, data2, alternative='two-sided')
-                    rbc = (2 * stat) / (len(data1) * len(data2)) - 1
-                    sig = '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else 'ns'
-                    pairwise_results.append({
-                        'Feature': col.replace('_', ' ').title(),
-                        'Group1': g1.capitalize(),
-                        'Group2': g2.capitalize(),
-                        'U-statistic': round(stat, 2),
-                        'P-value': p,
-                        'Effect Size (r)': round(rbc, 3),
-                        'Significance': sig
-                    })
-pd.DataFrame(pairwise_results).to_csv(TABLE_DIR / "Table6_Pairwise_Statistics.csv", index=False)
-
-print("✅ All tables saved!")
-
-# ============================================
-# FINAL SUMMARY
-# ============================================
-print("\n" + "="*75)
-print("✅ ANALYSIS COMPLETE!")
-print("="*75)
-print(f"\n📁 Results: {PROJECT_DIR}")
-print(f"  ✅ Genomes analyzed: {len(df)}")
-print(f"  ✅ Groups: {dict(df['group'].value_counts())}")
-print(f"\n  📊 Figures: {FIGURE_DIR} (7 files)")
-print(f"  📋 Tables: {TABLE_DIR} (6 files)")
-print("\n" + "="*75)
+print("\n" + "=" * 60)
+print("PIPELINE COMPLETE")
+print("=" * 60)
+print(f"  Data:    {OUTDIR}/")
+print(f"  Figures: {FIGDIR}/  ({len(figure_files)} figures)")
+print(f"  Tables:  {TABDIR}/  (8 tables)")
