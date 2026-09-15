@@ -1,0 +1,7 @@
+,Feature,H statistic,p value,Significance
+0,GC content (%),62.652,1.59e-13,***
+1,Gene count,28.671,2.63e-06,***
+2,TE count,19.138,0.000256,***
+3,Genome size (MB),34.217,1.78e-07,***
+4,Avg gene length (bp),5.489,0.139,ns
+5,GC3,61.532,2.77e-13,***

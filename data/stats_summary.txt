@@ -1,0 +1,16 @@
+KRUSKAL-WALLIS
+gc_content	H=62.6523	p=1.594e-13
+gene_count	H=28.6708	p=2.626e-06
+te_count	H=19.1378	p=0.000256
+genome_size_mb	H=34.2169	p=1.783e-07
+avg_gene_length	H=5.4892	p=0.1393
+gc3	H=61.5316	p=2.767e-13
+
+WHEATSHEAF
+thermophile	0.5438
+halophile	0.8011
+acidophile	0.6125
+mesophile	1.2299
+
+SILHOUETTE	0.1225
+PCA	PC1=46.01	PC2=29.66

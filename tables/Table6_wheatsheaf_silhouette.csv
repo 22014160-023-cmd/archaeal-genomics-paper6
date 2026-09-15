@@ -1,0 +1,6 @@
+,Group,n,Wheatsheaf Index,Mean silhouette,Interpretation
+0,Thermophile,30,0.544,0.224,Convergence
+1,Halophile,30,0.801,0.335,Convergence
+2,Acidophile,7,0.613,0.173,Convergence
+3,Mesophile,27,1.230,-0.239,Divergence
+4,Global,94,—,0.123,Overall separation

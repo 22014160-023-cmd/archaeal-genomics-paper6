@@ -1,29 +1,32 @@
-# Archaeal Genomic Signatures of Ecological Specialization
+# Genomic Convergence and Divergence in Archaeal Extremophiles
 
-## Overview
-Complete analysis for: **"Genomic Signatures of Ecological Specialization in Archaea"**
+Analysis of **94 complete archaeal genomes** across four environmental classes:
+thermophiles (n=30), halophiles (n=30), mesophiles (n=27), acidophiles (n=7).
 
-## Dataset
-- 98 complete archaeal genomes
-- 4 groups: thermophile, halophile, acidophile, mesophile
-- 6 genomic features
+## Contents
 
-## Key Findings
-1. Gene count, genome size, and TE content differ by environment (p < 0.01)
-2. Halophiles show strongest convergence (Wheatsheaf Index = 0.830)
-3. GC and GC3 are strongly correlated (r = 0.97)
-4. Gene count and genome size are correlated (r = 0.97)
+```
+data/          Feature table + statistics summary
+figures/       20 figures (5 views x 4 panels)
+tables/        8 tables (CSV + LaTeX)
+code/          Analysis scripts
+manuscript/    LaTeX source
+```
 
-## Structure
-├── README.md
-├── requirements.txt
-├── analysis.py
-├── Master_Data.csv
-├── figures/ (7 PNG files)
-└── tables/ (6 CSV files)
+## Key findings
 
-## Citation
-[To be added]
+- Halophiles show the most extreme genomic profile: GC = 66.3%, GC3 = 0.75,
+  genome size = 2.89 MB, gene count = 2,957
+- Thermophiles have the smallest genomes (1.95 MB), lowest gene counts (2,111),
+  and lowest TE content (13.8)
+- Mesophiles have the highest TE content (42.7)
+- Thermophiles show strongest convergence (Wheatsheaf Index = 0.544)
+- Mesophiles diverge (WS = 1.230)
+- GC-to-GC3 correlation: r = 0.978
+- Gene count-to-genome size correlation: r = 0.973
 
-## License
-MIT
+## Contact
+
+Dr. Nadia Zeeshan — nadia.zeeshan@uog.edu.pk
+Department of Biochemistry and Biotechnology
+University of Gujrat, Pakistan
